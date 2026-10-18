@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DeepSeek Balance Ball",
+    "description": "Shows your DeepSeek API balance in a floating ball at the bottom-right corner. Click it to see cash, granted and total balance."
+  }
+}
