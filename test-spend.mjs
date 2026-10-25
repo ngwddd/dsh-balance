@@ -10,7 +10,7 @@ fs.mkdirSync(path.join(tmp, '.dsh', 'storages'), { recursive: true });
 
 const { apply } = await import('./index.js');
 
-let handler = null;
+const handlers = new Map();
 let step = 0;
 const balances = [
   { bal: '7.89', bonus: '72.64' },   // spendBase = 80.53
@@ -30,7 +30,7 @@ const ctx = {
       };
     },
   } : null,
-  webServer: { register: (r) => { handler = r.handler; } },
+  webServer: { register: (r) => { handlers.set(r.path, r.handler); } },
 };
 
 apply(ctx);
@@ -42,7 +42,9 @@ function call(url) {
       setHeader() {},
       end(body) { try { resolve(JSON.parse(body)); } catch (e) { reject(e); } },
     };
-    Promise.resolve(handler({ url }, res)).catch(reject);
+    const fn = handlers.get('/api/ds-balance');
+    if (!fn) { reject(new Error('没有注册 /api/ds-balance')); return; }
+    Promise.resolve(fn({ url }, res)).catch(reject);
   });
 }
 

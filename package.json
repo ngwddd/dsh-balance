@@ -1,10 +1,10 @@
 {
   "name": "@local/ds-balance",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "简约 · DSH 余额：悬浮球显示余额，点开看今日用量、花费与峰谷时段。",
-  "keywords": ["dsh", "deepseek", "balance", "plugin"],
+  "description": "简约 · DSH 余额：悬浮球看余额、用量、花费与峰谷时段；任务完成提示音 + 等待确认角标。",
+  "keywords": ["dsh", "deepseek", "balance", "plugin", "deepseek-harness"],
   "license": "MIT",
   "exports": {
     ".": "./index.js",
@@ -22,7 +22,9 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node test-spend.mjs"
+    "test": "node test/host-api.mjs && node test/client-render.cjs",
+    "test:spend": "node test-spend.mjs",
+    "test:live": "node test/live-api.mjs"
   },
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },

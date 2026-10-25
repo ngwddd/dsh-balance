@@ -11,9 +11,131 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
     const { useState, useEffect, useLayoutEffect, useRef, useCallback } = React;
 
-    const POLL_MS = 5000;
+    const POLL_OPEN_MS = 5000;      // 卡片开着：5 秒
+    const POLL_IDLE_MS = 20000;     // 卡片收起：20 秒（只为红点新鲜）
+    const POLL_HIDDEN_MS = 120000;  // 窗口最小化：2 分钟
     const POS_KEY = 'dsh.ds-balance.pos';
+    const OPEN_KEY = 'dsh.ds-balance.open';
+    const LANG_KEY = 'dsh.ds-balance.lang';
+    const CHIME_KEY = 'dsh.ds-balance.chime';
     const SIZE = 46;
+
+    // ★ 兜底链接：首帧（data 还没回来）也必须画出「充值 / 用量」，
+    //   否则底部那行先只剩 [EN]，几秒后数据到了才长出来——就是用户看到的「按钮消失又出现」。
+    const DEFAULT_LINKS = {
+      topUpUrl: 'https://platform.deepseek.com/top_up',
+      usageUrl: 'https://platform.deepseek.com/usage',
+    };
+
+    // ── 文案（中 / 英）──────────────────────────────────────
+    // 英文按 DeepSeek 官方 API 文档的术语：
+    //   peak / off-peak hours、cache hit / cache miss、
+    //   topped-up balance / granted balance、Chinese public holidays
+    //   出处：api-docs.deepseek.com/quick_start/pricing
+    const STRINGS = {
+      zh: {
+        title: 'DeepSeek 余额',
+        refresh: '刷新',
+        collapse: '收起',
+        dragCard: '按住拖动这张卡片',
+        total: '总余额',
+        topped: '现金',
+        granted: '赠送',
+        window: '当前时段',
+        peak: '高峰期 · 全价',
+        offpeak: '低峰期 · 5 折',
+        windowHint: '工作日 09:00–12:00 / 14:00–18:00（北京时间） · 节假日全天低峰',
+        todayUsage: '今日用量',
+        calls: '次调用',
+        lastHour: '这一小时花费',
+        today: '今天花费',
+        sampled: '余额采样自',
+        sampledTail: ' 起，更早的消费未计入',
+        inputTok: '输入 token',
+        outputTok: '输出 token',
+        reasoningTok: '推理 token（不计费）',
+        statDate: '统计日',
+        totalTok: '合计 token',
+        trend: '24 小时余额',
+        daysLeft: (v) => '还能撑 ' + v + ' 天',
+        hoursLeft: (v) => '还能撑 ' + v + ' 小时',
+        barely: '几乎没消耗',
+        sound: '任务完成提示音',
+        test: '试听',
+        testTip: '试听一声',
+        volume: '音量',
+        volumeTip: '提示音音量',
+        dragHint: '按住标题栏拖动',
+        source: '数据源：',
+        sourceAccount: 'DSH 账户服务',
+        sourceApi: '官方 API',
+        topUp: '充值',
+        usage: '用量',
+        waiting: (n) => '⏳ 等你确认 · ' + n + ' 项',
+        openSession: '点击打开该会话',
+        low: (v) => '余额低于 ' + v + '，记得充值',
+        insufficient: '⚠ 余额不足以继续调用',
+        cantRead: '读不到余额：',
+        ballTip: (m) => 'DeepSeek 余额 ' + m,
+        ballWait: (n) => ' · 有 ' + n + ' 项等你确认',
+        ballHint: '（点击看明细，Alt+B 也可）',
+        on: '提示音已开，点击静音',
+        off: '静音中，点击开启提示音',
+        langBtn: 'EN',
+        langTip: 'Switch to English',
+      },
+      en: {
+        title: 'DeepSeek Balance',
+        refresh: 'Refresh',
+        collapse: 'Close',
+        dragCard: 'Drag to move this card',
+        total: 'Total balance',
+        topped: 'Topped-up',
+        granted: 'Granted',
+        window: 'Pricing now',
+        peak: 'Peak · full rate',
+        offpeak: 'Off-peak · 50% off',
+        windowHint: 'Weekdays 09:00–12:00 / 14:00–18:00 (UTC+8) · off-peak all day on Chinese public holidays',
+        todayUsage: "Today's usage",
+        calls: 'calls',
+        lastHour: 'Spent · last hour',
+        today: 'Spent · today',
+        sampled: 'Balance sampled from',
+        sampledTail: ' — earlier spending not included',
+        inputTok: 'Input tokens',
+        outputTok: 'Output tokens',
+        reasoningTok: 'Reasoning tokens (not billed)',
+        statDate: 'Stats date',
+        totalTok: 'Total tokens',
+        trend: 'Balance · 24h',
+        daysLeft: (v) => '~' + v + ' days left',
+        hoursLeft: (v) => '~' + v + ' h left',
+        barely: 'barely used',
+        sound: 'Completion sound',
+        test: 'Test',
+        testTip: 'Play a test sound',
+        volume: 'Volume',
+        volumeTip: 'Sound volume',
+        dragHint: 'Drag the title bar to move',
+        source: 'Source: ',
+        sourceAccount: 'DSH account service',
+        sourceApi: 'Official API',
+        topUp: 'Top up',
+        usage: 'Usage',
+        waiting: (n) => '⏳ Awaiting your approval · ' + n,
+        openSession: 'Click to open this session',
+        low: (v) => 'Below ' + v + ' — top up soon',
+        insufficient: '⚠ Balance too low to keep calling',
+        cantRead: 'Cannot read balance: ',
+        ballTip: (m) => 'DeepSeek balance ' + m,
+        ballWait: (n) => ' · ' + n + ' awaiting approval',
+        ballHint: ' (click for details, Alt+B works too)',
+        on: 'Sound on — click to mute',
+        off: 'Muted — click to enable',
+        langBtn: '中',
+        langTip: '切换到中文',
+      },
+    };
 
     const ballStyle = (dragging, expanded) => ({
       position: 'fixed',
@@ -65,7 +187,12 @@ window.__ModuleLoader__.load({
      * 用整数「分」做 BigInt 加法 + 四舍五入，避开 0.1+0.2 那类误差。
      */
     function toCents(s) {
-      const m = /^(-?)(\d*)(?:\.(\d*))?$/.exec(String(s == null ? '' : s).trim());
+      // ★ 空串必须返回 null：旧版把 '' 也匹配成正则（\d* 允许空），
+      //   于是「只有 total、没有 toppedUp/granted」的数据会被算成 0 分，
+      //   余额显示成 ¥0.00（2026-10-26 用渲染测试抓到的真实 bug）。
+      const text = String(s == null ? '' : s).trim();
+      if (!text) return null;
+      const m = /^(-?)(\d*)(?:\.(\d*))?$/.exec(text);
       if (!m) return null;
       const sign = m[1] === '-' ? -1n : 1n;
       const intPart = m[2] || '0';
@@ -163,8 +290,6 @@ window.__ModuleLoader__.load({
       return {
         peak,
         holiday,                                   // 仅内部使用，不渲染
-        label: peak ? '高峰期 · 全价' : '低峰期 · 5 折',
-        hint: '工作日 09:00–12:00 / 14:00–18:00（北京时间）',
       };
     }
 
@@ -174,11 +299,160 @@ window.__ModuleLoader__.load({
       return { x: Math.min(Math.max(0, x), maxX), y: Math.min(Math.max(0, y), maxY) };
     }
 
+    /** 把 24 小时采样点画成一条迷你折线的 path（无数据返回 null） */
+    function sparkPath(points, w, h) {
+      if (!Array.isArray(points) || points.length < 2) return null;
+      let min = Infinity;
+      let max = -Infinity;
+      for (const p of points) {
+        const v = Number(p && p.v);
+        if (!Number.isFinite(v)) continue;
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+      const span = max - min || 1;
+      const stepX = w / (points.length - 1);
+      let d = '';
+      for (let i = 0; i < points.length; i += 1) {
+        const v = Number(points[i] && points[i].v);
+        const x = i * stepX;
+        const y = h - ((v - min) / span) * h;
+        d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1);
+      }
+      return d;
+    }
+
     // ── 主组件 ────────────────────────────────────────────
+    // 「点横幅跳到那个会话」——apply() 时从 client 服务取，取不到就退化成不可点
+    let openSessionPlugin = null;
+
     function BalanceBall() {
       const [data, setData] = useState(null);
       const [error, setError] = useState(null);
-      const [open, setOpen] = useState(false);
+      const [open, setOpen] = useState(() => {
+        try { return window.localStorage.getItem(OPEN_KEY) === '1'; } catch { return false; }
+      });
+      useEffect(() => {
+        try { window.localStorage.setItem(OPEN_KEY, open ? '1' : '0'); } catch { /* ignore */ }
+      }, [open]);
+      const [hidden, setHidden] = useState(
+        () => typeof document !== 'undefined' && document.hidden === true,
+      );
+      const ballRef = useRef(null);
+
+      // ⭐ 中 / 英切换（存 localStorage，跟系统语言无关，用户自己按）
+      const [lang, setLang] = useState(() => {
+        try { return window.localStorage.getItem(LANG_KEY) === 'en' ? 'en' : 'zh'; } catch { return 'zh'; }
+      });
+      useEffect(() => {
+        try { window.localStorage.setItem(LANG_KEY, lang); } catch { /* ignore */ }
+      }, [lang]);
+      const t = STRINGS[lang] || STRINGS.zh;
+
+      // ⭐ 任务完成提示音开关（服务端为准，本地先乐观更新）
+      //    初始值读上次缓存：不然数据还没回来时开关会先画成「开」，跟真实状态不一致。
+      const [chime, setChime] = useState(() => {
+        try {
+          const raw = window.localStorage.getItem(CHIME_KEY);
+          return raw === '0' ? false : raw === '1' ? true : null;
+        } catch {
+          return null;
+        }
+      });
+      const rememberChime = useCallback((v) => {
+        try { window.localStorage.setItem(CHIME_KEY, v ? '1' : '0'); } catch { /* ignore */ }
+      }, []);
+      // 接口失败不再静默：至少 console 里能看见（试听键那次的教训）
+      const reportChimeError = useCallback((detail) => {
+        try { console.warn('[ds-balance] chime request failed:', detail); } catch { /* ignore */ }
+      }, []);
+      useEffect(() => {
+        if (data && data.chime && typeof data.chime.enabled === 'boolean') {
+          setChime(data.chime.enabled);
+          rememberChime(data.chime.enabled);
+        }
+      }, [data, rememberChime]);
+      const toggleChime = useCallback(async (next) => {
+        setChime(next);
+        rememberChime(next);
+        try {
+          const r = await fetch('/api/ds-balance/chime', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ enabled: next }),
+          });
+          if (!r.ok) {
+            reportChimeError('HTTP ' + r.status);
+            setChime(!next);
+            rememberChime(!next);
+            return;
+          }
+          const j = await r.json();
+          if (j && j.chime && typeof j.chime.enabled === 'boolean') {
+            setChime(j.chime.enabled);
+            rememberChime(j.chime.enabled);
+          }
+        } catch (err) {
+          setChime(!next);
+          rememberChime(!next);
+          reportChimeError(err && err.message ? err.message : err);
+        }
+      }, [rememberChime, reportChimeError]);
+      const previewChime = useCallback(async () => {
+        try {
+          const r = await fetch('/api/ds-balance/chime', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ play: true }),
+          });
+          if (!r.ok) reportChimeError('HTTP ' + r.status);
+        } catch (err) {
+          reportChimeError(err && err.message ? err.message : err);
+        }
+      }, [reportChimeError]);
+
+      // ⭐ 提示音音量（0–100）
+      //    拖的时候不让轮询把值冲掉（否则滑块会往回跳，手感很渣），
+      //    松手 200ms 后才落盘，避免拖一次发一堆 POST。
+      const [volume, setVolume] = useState(60);
+      const volumeEditing = useRef(false);
+      const volumeTouchedAt = useRef(0);
+      const volumeRef = useRef(60);
+      useEffect(() => { volumeRef.current = volume; }, [volume]);
+      useEffect(() => {
+        if (volumeEditing.current) return;
+        if (Date.now() - volumeTouchedAt.current < 1500) return;
+        if (data && data.chime && Number.isFinite(Number(data.chime.volume))) {
+          setVolume(Number(data.chime.volume));
+        }
+      }, [data]);
+      const saveVolume = useCallback((v) => {
+        fetch('/api/ds-balance/chime', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ volume: v }),
+        }).catch(() => {});
+      }, []);
+      const volumeTimer = useRef(0);
+      const changeVolume = useCallback((next) => {
+        const v = Math.max(0, Math.min(100, Math.round(next)));
+        volumeTouchedAt.current = Date.now();
+        setVolume(v);
+        window.clearTimeout(volumeTimer.current);
+        volumeTimer.current = window.setTimeout(() => saveVolume(v), 200);
+      }, [saveVolume]);
+      const beginVolume = useCallback(() => {
+        volumeEditing.current = true;
+        window.clearTimeout(volumeTimer.current);
+      }, []);
+      const endVolume = useCallback(() => {
+        if (!volumeEditing.current) return;
+        volumeEditing.current = false;
+        volumeTouchedAt.current = Date.now();
+        window.clearTimeout(volumeTimer.current);
+        saveVolume(volumeRef.current);
+      }, [saveVolume]);
       const [pos, setPos] = useState(() => {
         try {
           const raw = localStorage.getItem(POS_KEY);
@@ -214,9 +488,14 @@ window.__ModuleLoader__.load({
       }, [open, data, error, pos.x, pos.y]);
 
       // 拉数据
+      // ★ 刷新节流：10 秒内连点「刷新」不重复打官方接口（force 会被降级成缓存读）
+      const lastForce = useRef(0);
       const pull = useCallback(async (force) => {
+        const now = Date.now();
+        const wantRefresh = force === true && now - lastForce.current > 10000;
+        if (wantRefresh) lastForce.current = now;
         try {
-          const r = await fetch('/api/ds-balance' + (force ? '?refresh=1' : ''), {
+          const r = await fetch('/api/ds-balance' + (wantRefresh ? '?refresh=1' : ''), {
             headers: { Accept: 'application/json' },
             cache: 'no-store',
           });
@@ -232,18 +511,60 @@ window.__ModuleLoader__.load({
         }
       }, []);
 
-      // 轮询
+      // 轮询：卡片开着 5s、收起 20s、窗口最小化 2 分钟
+      useEffect(() => {
+        const onVis = () => setHidden(document.hidden === true);
+        document.addEventListener('visibilitychange', onVis);
+        return () => document.removeEventListener('visibilitychange', onVis);
+      }, []);
       useEffect(() => {
         let alive = true;
         pull(false);
+        const period = hidden ? POLL_HIDDEN_MS : (open ? POLL_OPEN_MS : POLL_IDLE_MS);
         const id = setInterval(() => {
           if (alive) pull(false);
-        }, POLL_MS);
+        }, period);
         return () => {
           alive = false;
           clearInterval(id);
         };
-      }, [pull]);
+      }, [pull, open, hidden]);
+
+      // 点卡片外面 / 按 ESC 收起
+      useEffect(() => {
+        if (!open) return undefined;
+        const onDown = (e) => {
+          const t = e.target;
+          if (!t) return;
+          if (cardRef.current && cardRef.current.contains(t)) return;
+          if (ballRef.current && ballRef.current.contains(t)) return;
+          setOpen(false);
+        };
+        const onKey = (e) => {
+          if (e.key === 'Escape') setOpen(false);
+        };
+        document.addEventListener('pointerdown', onDown, true);
+        document.addEventListener('keydown', onKey);
+        return () => {
+          document.removeEventListener('pointerdown', onDown, true);
+          document.removeEventListener('keydown', onKey);
+        };
+      }, [open]);
+
+      // Alt+B 开合卡片（输入框里打字时不抢）
+      useEffect(() => {
+        const onKey = (e) => {
+          if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+          if (String(e.key || '').toLowerCase() !== 'b') return;
+          const el = document.activeElement;
+          const tag = el && el.tagName ? el.tagName.toLowerCase() : '';
+          if (tag === 'input' || tag === 'textarea' || tag === 'select' || (el && el.isContentEditable)) return;
+          e.preventDefault();
+          setOpen((v) => !v);
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, []);
 
       // 窗口尺寸变化时夹回来
       useEffect(() => {
@@ -356,24 +677,47 @@ window.__ModuleLoader__.load({
       const label = data ? money(cur, total) : error ? '!' : '…';
       const low = data && data.available === false;
 
+      // ★ 球的三态：正常 / 余额低（黄）/ 等确认（黄+角标）/ 读不到（红）
+      const waitingCount = Number(data && data.status && data.status.waiting) || 0;
+      const waitingList = (data && data.status && Array.isArray(data.status.waitingList))
+        ? data.status.waitingList
+        : [];
+      // 链接永远有值（服务端没给就用兜底），底部一行的宽度从第一帧起就是稳定的
+      const links = Object.assign({}, DEFAULT_LINKS, (data && data.links) || {});
+      const warnLow = !!(data && data.warn && data.warn.low);
+      const failed = !data && !!error;
+      const tone = failed ? 'error' : waitingCount > 0 ? 'waiting' : (warnLow || low) ? 'low' : 'ok';
+      const toneBg = tone === 'error'
+        ? 'linear-gradient(135deg,#8f2020 0%,#d13b3b 100%)'
+        : tone === 'waiting'
+          ? 'linear-gradient(135deg,#a86400 0%,#e0a300 100%)'
+          : tone === 'low'
+            ? 'linear-gradient(135deg,#a86400 0%,#d9a520 100%)'
+            : 'linear-gradient(135deg,#2f6bff 0%,#7b3ff2 100%)';
+
       const ball = h(
         'div',
         {
+          ref: ballRef,
           style: { ...ballStyle(drag.current.active, open),
+                   background: toneBg,
                    left: pos.x + 'px', top: pos.y + 'px',
-                   // ★ 关键：shell.overlay 这一层是 click-through，
-                   //   占位元素必须自己 opt-in 指针事件，否则点不到
                    pointerEvents: 'auto' },
           title: data
-            ? `DeepSeek 余额 ${money(cur, total)}（点击看明细）`
-            : 'DeepSeek 余额',
+            ? t.ballTip(money(cur, total))
+              + (waitingCount > 0 ? t.ballWait(waitingCount) : '')
+              + (waitingCount > 0 && waitingList.length
+                  ? ' · ' + waitingList.slice(0, 3).map((w) => (w && w.tool) || 'approval').join(', ')
+                  : '')
+              + t.ballHint
+            : t.title,
           onPointerDown,
           onPointerMove,
           onPointerUp,
           onPointerCancel: onPointerUp,
           role: 'button',
           tabIndex: 0,
-          'aria-label': 'DeepSeek 余额',
+          'aria-label': t.title,
           onKeyDown: (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
@@ -394,6 +738,25 @@ window.__ModuleLoader__.load({
           },
           label,
         ),
+        waitingCount > 0
+          ? h('span', {
+              style: {
+                position: 'absolute', top: -3, right: -3, minWidth: 15, height: 15, padding: '0 3px',
+                borderRadius: 999, background: '#e0a300', color: '#1b1b1b',
+                fontSize: 9, fontWeight: 700, lineHeight: '15px', textAlign: 'center',
+                boxShadow: '0 1px 3px rgba(0,0,0,.45)',
+              },
+            }, String(waitingCount))
+          : failed
+            ? h('span', {
+                style: {
+                  position: 'absolute', top: -3, right: -3, width: 12, height: 12,
+                  borderRadius: '50%', background: '#f85149', color: '#fff',
+                  fontSize: 9, fontWeight: 700, lineHeight: '12px', textAlign: 'center',
+                  boxShadow: '0 0 0 2px rgba(0,0,0,.35)',
+                },
+              }, '!')
+            : null,
       );
 
       if (!open) return ball;
@@ -444,9 +807,9 @@ window.__ModuleLoader__.load({
 
       const rows = data
         ? [
-            ['总余额', money(cur, total), true],
-            ...(hasTopped ? [['现金', money(cur, data.toppedUp), false]] : []),
-            ...(hasGranted ? [['赠送', money(cur, data.granted), false]] : []),
+            [t.total, money(cur, total), true],
+            ...(hasTopped ? [[t.topped, money(cur, data.toppedUp), false]] : []),
+            ...(hasGranted ? [[t.granted, money(cur, data.granted), false]] : []),
           ]
         : [];
 
@@ -475,27 +838,27 @@ window.__ModuleLoader__.load({
             onPointerMove: cardMove,
             onPointerUp: cardUp,
             onPointerCancel: cardUp,
-            title: '按住拖动这张卡片',
+            title: t.dragCard,
           },
-          h('span', { style: { fontWeight: 600, fontSize: 12 } }, 'DeepSeek 余额'),
+          h('span', { style: { fontWeight: 600, fontSize: 12 } }, t.title),
           h('span', { style: { flex: 1 } }),
           h(
             'button',
             {
               onClick: () => pull(true),
-              title: '刷新',
+              title: t.refresh,
               style: {
                 background: 'transparent', border: 'none', color: 'var(--dsw-alias-label-secondary, #9aa4ff)',
                 cursor: 'pointer', fontSize: 11, padding: '2px 4px',
               },
             },
-            '刷新',
+            t.refresh,
           ),
           h(
             'button',
             {
               onClick: () => setOpen(false),
-              title: '收起',
+              title: t.collapse,
               style: {
                 background: 'transparent', border: 'none', color: 'var(--dsw-alias-label-secondary, #9aa4ff)',
                 cursor: 'pointer', fontSize: 11, padding: '2px 4px',
@@ -505,9 +868,41 @@ window.__ModuleLoader__.load({
           ),
         ),
 
+        waitingCount > 0
+          ? h('div', {
+              style: {
+                marginTop: 6, padding: '4px 8px', borderRadius: 8,
+                background: 'rgba(210,153,34,.16)',
+                border: '1px solid rgba(210,153,34,.42)',
+                color: '#e0a300', fontSize: 10.5, fontWeight: 600,
+              },
+            }, [
+              h('div', null, t.waiting(waitingCount)),
+              waitingList.slice(0, 2).map((w, i) => h('div', {
+                key: (w && w.sessionId) || ('w' + i),
+                onClick: () => { if (openSessionPlugin && w && w.sessionId) openSessionPlugin(w.sessionId); },
+                title: (w && w.title ? w.title + ' — ' : '') + t.openSession,
+                style: {
+                  marginTop: 3, display: 'flex', gap: 6, alignItems: 'baseline',
+                  fontWeight: 500, cursor: openSessionPlugin ? 'pointer' : 'default',
+                },
+              },
+                h('span', { style: { whiteSpace: 'nowrap' } }, (w && w.tool) || 'approval'),
+                w && w.title
+                  ? h('span', {
+                      style: {
+                        opacity: 0.62, fontWeight: 400, minWidth: 0,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      },
+                    }, '· ' + w.title)
+                  : null,
+              )),
+            ])
+          : null,
+
         error && !data
           ? h('div', { style: { color: 'var(--dsw-alias-state-error-primary, #ff9a9a)', fontSize: 11 } },
-              '读不到余额：' + error)
+              t.cantRead + error)
           : h(
               'div',
               null,
@@ -521,6 +916,14 @@ window.__ModuleLoader__.load({
               ),
             ),
 
+        warnLow
+          ? h('div', {
+              style: {
+                marginTop: 6, color: 'var(--dsw-alias-state-warn-primary, #ffcf6b)', fontSize: 10.5,
+              },
+            }, t.low(money(cur, String((data && data.warn && data.warn.threshold) || 2))))
+          : null,
+
         (() => {
           const st = peakStatus();
           return h(
@@ -528,26 +931,25 @@ window.__ModuleLoader__.load({
             { style: { marginTop: 7, paddingTop: 6,
                        borderTop: '1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.06))' } },
             h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } },
-              h('span', { style: { opacity: 0.68, fontSize: 10.5 } }, '当前时段'),
+              h('span', { style: { opacity: 0.68, fontSize: 10.5 } }, t.window),
               h('span', { style: { fontSize: 10.5, fontWeight: 550,
-                                   color: st.peak ? '#ffcf6b' : '#3ddc84' } }, st.label),
+                                   color: st.peak ? '#ffcf6b' : '#3ddc84' } },
+                st.peak ? t.peak : t.offpeak),
             ),
             h('div', { style: { marginTop: 2, opacity: 0.45, fontSize: 9.5 } },
-              st.hint + ' · 节假日全天低峰'),
+              t.windowHint),
           );
         })(),
 
         low
           ? h('div', { style: { marginTop: 6, color: 'var(--dsw-alias-state-warn-primary, #ffcf6b)', fontSize: 11 } },
-              '⚠ 余额不足以继续调用')
+              t.insufficient)
           : null,
 
         // ★★★ 今日用量（本地统计：拦 llm/stream 的 usage 帧）
         (() => {
           const u = data && data.usage;
           if (!u) return null;
-          const hit = u.cacheHitRate;
-          const miss = u.cacheMissRate;
           const line = (k, v, dim) => h(
             'div',
             { key: k, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } },
@@ -568,72 +970,151 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { style: { fontSize: 10, opacity: 0.55, marginBottom: 3, letterSpacing: '.2px' } },
-              '今日用量' + (u.calls ? ' · ' + u.calls + ' 次调用' : ''),
+              t.todayUsage + (u.calls ? ' · ' + u.calls + ' ' + t.calls : ''),
             ),
             // ★ 花费两行（按余额下降推算，不用价格表）
             sp && sp.lastHour != null
-              ? line('这一小时花费' + (sp.hourFull === false ? '*' : ''),
+              ? line(t.lastHour + (sp.hourFull === false ? '*' : ''),
                      money(cur2, sp.lastHour))
               : null,
             sp && sp.today != null
-              ? line('今天花费' + (sp.todayFull === false ? '*' : ''),
+              ? line(t.today + (sp.todayFull === false ? '*' : ''),
                      money(cur2, sp.today), false)
               : null,
             sp && (sp.hourFull === false || sp.todayFull === false)
               ? h('div', { style: { fontSize: 9.5, opacity: 0.5, marginTop: 1 } },
-                  '*' + ' 余额采样自 ' + (() => {
+                  '*' + t.sampled + ' ' + (() => {
                     try {
                       const d = new Date(sp.coveredSince);
                       const p2 = (n) => String(n).padStart(2, '0');
                       return p2(d.getHours()) + ':' + p2(d.getMinutes());
                     } catch { return '—'; }
-                  })() + ' 起，更早的消费未计入')
+                  })() + t.sampledTail)
               : null,
-            sp
-              ? h('div', { style: { height: 4 } })
-              : null,
-            // 缓存命中 / 未命中，带一条小比例条
+            // token 组：跟上面花费行保持同一条节奏（统一 6px 组间距），
+            // 不再用零散的 4px 占位——删掉缓存命中那两行之后间距才会发飘。
             h(
               'div',
-              { style: { marginBottom: 4 } },
-              h(
-                'div',
-                { style: { display: 'flex', justifyContent: 'space-between', fontSize: 10.5, marginBottom: 2 } },
-                h('span', { style: { opacity: 0.68 } }, '缓存命中'),
-                h('span', { style: { fontWeight: 600 } },
-                  hit == null ? '—' : hit.toFixed(1) + '%'),
-              ),
-              h(
-                'div',
-                {
-                  style: {
-                    height: 3,
-                    borderRadius: 2,
-                    background: 'var(--dsw-alias-border-l2, rgba(255,255,255,.14))',
-                    overflow: 'hidden',
-                  },
-                },
-                h('span', {
-                  style: {
-                    display: 'block',
-                    height: '100%',
-                    width: Math.max(0, Math.min(100, hit || 0)) + '%',
-                    background: (hit || 0) >= 60
-                      ? 'var(--dsw-alias-state-business-primary, #4fb3ff)'
-                      : 'var(--dsw-alias-state-warn-primary, #ffcf6b)',
-                  },
-                }),
-              ),
+              { style: { marginTop: 6 } },
+              line(t.inputTok, kfmt(u.inputTokens)),
+              line(t.outputTok, kfmt(u.outputTokens)),
+              u.reasoningTokens
+                ? line(t.reasoningTok, kfmt(u.reasoningTokens), true)
+                : null,
+              line(u.date ? t.statDate + ' ' + u.date : t.totalTok, kfmt(u.totalTokens)),
             ),
-            line('未命中', miss == null ? '—' : miss.toFixed(1) + '%', true),
-            line('输入 token', kfmt(u.inputTokens)),
-            line('输出 token', kfmt(u.outputTokens)),
-            u.reasoningTokens
-              ? line('推理 token（不计费）', kfmt(u.reasoningTokens), true)
-              : null,
-            line(u.date ? '统计日 ' + u.date : '合计 token', kfmt(u.totalTokens)),
           );
         })(),
+
+        // ⭐ 24 小时余额曲线 + 还能撑几天
+        (() => {
+          const sp = data && data.spend;
+          const path = sp && sparkPath(sp.series, 200, 28);
+          if (!path) return null;
+          const tail = sp.daysLeft != null
+            ? (sp.daysLeft >= 1
+                ? t.daysLeft(sp.daysLeft)
+                : t.hoursLeft(Math.max(1, Math.round(sp.daysLeft * 24))))
+            : (sp.ratePerDay > 0 ? '' : t.barely);
+          return h('div', {
+            style: {
+              marginTop: 8, paddingTop: 7,
+              borderTop: '1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.06))',
+            },
+          },
+            h('div', {
+              style: {
+                display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                fontSize: 10.5, opacity: 0.68, marginBottom: 3,
+              },
+            },
+              h('span', null, t.trend),
+              tail ? h('span', null, tail) : null,
+            ),
+            h('svg', {
+              width: 200, height: 28, viewBox: '0 0 200 28',
+              style: { display: 'block', overflow: 'visible' },
+            },
+              h('path', {
+                d: path, fill: 'none', stroke: '#4fb3ff', strokeWidth: 1.5,
+                strokeLinejoin: 'round', strokeLinecap: 'round',
+              }),
+            ),
+          );
+        })(),
+
+        // ⭐ 任务完成提示音开关（这个卡片自己的 UI）
+        (() => {
+          const on = chime !== false;
+          return h(
+            'div',
+            {
+              style: {
+                display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, paddingTop: 7,
+                borderTop: '1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.08))',
+              },
+            },
+            h('span', { style: { opacity: 0.68, fontSize: 10.5 } }, t.sound),
+            h('span', { style: { flex: 1 } }),
+            h('button', {
+              type: 'button',
+              onClick: previewChime,
+              title: t.testTip,
+              style: {
+                background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 2px',
+                fontSize: 10.5, color: 'var(--dsw-alias-label-secondary, #9aa4ff)', opacity: 0.85,
+              },
+            }, t.test),
+            h('button', {
+              type: 'button',
+              role: 'switch',
+              'aria-checked': on,
+              onClick: () => toggleChime(!on),
+              title: on ? t.on : t.off,
+              style: {
+                position: 'relative', width: 30, height: 16, borderRadius: 999, cursor: 'pointer',
+                border: '1px solid ' + (on ? 'rgba(79,179,255,.55)' : 'rgba(255,255,255,.16)'),
+                background: on ? 'rgba(79,179,255,.34)' : 'rgba(255,255,255,.08)',
+                padding: 0, transition: 'background 140ms ease',
+              },
+            },
+              h('span', {
+                style: {
+                  position: 'absolute', top: 1, left: on ? 15 : 1, width: 12, height: 12,
+                  borderRadius: '50%', background: on ? '#4fb3ff' : 'rgba(255,255,255,.45)',
+                  transition: 'left 140ms ease',
+                },
+              }),
+            ),
+          );
+        })(),
+
+        // ⭐ 提示音音量（开关关着时也显示，只是变淡——先调好音量再决定开不开）
+        h(
+          'div',
+          {
+            style: {
+              display: 'flex', alignItems: 'center', gap: 8, marginTop: 5,
+              opacity: chime === false ? 0.5 : 1,
+            },
+          },
+          h('span', { style: { opacity: 0.68, fontSize: 10.5 } }, t.volume),
+          h('input', {
+            type: 'range', min: 0, max: 100, step: 1, value: volume,
+            onChange: (ev) => changeVolume(Number(ev.target.value)),
+            onPointerDown: (ev) => { ev.stopPropagation(); beginVolume(); },
+            onPointerUp: endVolume,
+            onPointerCancel: endVolume,
+            onBlur: endVolume,
+            title: t.volumeTip,
+            style: {
+              flex: 1, height: 18, accentColor: '#4fb3ff', cursor: 'pointer', margin: 0,
+              touchAction: 'none',
+            },
+          }),
+          h('span', { style: { width: 28, textAlign: 'right', fontSize: 10.5, opacity: 0.8 } },
+            volume + '%'),
+        ),
 
         h(
           'div',
@@ -647,30 +1128,40 @@ window.__ModuleLoader__.load({
               userSelect: 'none',
             },
           },
-          ['按住标题栏拖动'],
+          [t.dragHint],
         ),
 
         data && data.source
           ? h('div', { style: { marginTop: 7, opacity: 0.5, fontSize: 10.5 } },
-              (data.source === 'account' ? '数据源：DSH 账户服务' : '数据源：官方 API') +
+              t.source + (data.source === 'account' ? t.sourceAccount : t.sourceApi) +
                 (data.at ? ' · ' + localTime(data.at) : ''))
           : null,
 
         h(
           'div',
-          { style: { display: 'flex', gap: 8, marginTop: 9 } },
-          data && data.links && data.links.topUpUrl
-            ? h('a', {
-                href: data.links.topUpUrl, target: '_blank', rel: 'noreferrer',
-                style: { color: 'var(--dsw-alias-label-secondary, #9aa4ff)', fontSize: 11, textDecoration: 'none' },
-              }, '充值')
-            : null,
-          data && data.links && data.links.usageUrl
-            ? h('a', {
-                href: data.links.usageUrl, target: '_blank', rel: 'noreferrer',
-                style: { color: 'var(--dsw-alias-label-secondary, #9aa4ff)', fontSize: 11, textDecoration: 'none' },
-              }, '用量')
-            : null,
+          { style: { display: 'flex', gap: 8, marginTop: 9, alignItems: 'center' } },
+          h('a', {
+            href: links.topUpUrl, target: '_blank', rel: 'noreferrer',
+            style: { color: 'var(--dsw-alias-label-secondary, #9aa4ff)', fontSize: 11, textDecoration: 'none' },
+          }, t.topUp),
+          h('a', {
+            href: links.usageUrl, target: '_blank', rel: 'noreferrer',
+            style: { color: 'var(--dsw-alias-label-secondary, #9aa4ff)', fontSize: 11, textDecoration: 'none' },
+          }, t.usage),
+          // ⭐ 中/英切换（紧挨「用量」右侧的小胶囊，不改变这一行的行高）
+          h('button', {
+            type: 'button',
+            onClick: (e) => { e.stopPropagation(); setLang(lang === 'zh' ? 'en' : 'zh'); },
+            onPointerDown: (e) => e.stopPropagation(),
+            title: t.langTip,
+            style: {
+              marginLeft: 2, padding: '2px 6px', borderRadius: 6, cursor: 'pointer',
+              background: 'rgba(255,255,255,.06)',
+              border: '1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.18))',
+              color: 'var(--dsw-alias-label-secondary, #9aa4ff)',
+              font: 'inherit', fontSize: 10, lineHeight: 1.2,
+            },
+          }, t.langBtn),
         ),
       );
 
@@ -683,6 +1174,17 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots'],
       apply(ctx) {
+        // uiWorkspace 是可选服务：拿不到就只是不能点击跳转，不影响余额显示
+        try {
+          const ws = typeof ctx.get === 'function' ? ctx.get('uiWorkspace') : ctx.uiWorkspace;
+          if (ws && typeof ws.openSession === 'function') {
+            openSessionPlugin = (id) => {
+              try { ws.openSession(id); } catch { /* ignore */ }
+            };
+          }
+        } catch {
+          /* ignore */
+        }
         ctx.slots.inject('shell.overlay', () =>
           ctx.slots.register(
             { name: 'shell.overlay', id: 'ds-balance', order: 900 },
